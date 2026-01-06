@@ -43,10 +43,12 @@ def load_csv(path: str, datetime_col: Optional[str] = None, tz: Optional[str] = 
 
     # convert column names to standard OHLCV if possible
     df.columns = [c.strip() for c in df.columns]
-    try:
+    if 'tick_volume' in df.columns:
         df['volume'] = df['tick_volume']
-    except KeyError:
+    elif 'volume' in df.columns:
         df['volume'] = df['volume']
+    elif 'Volume' in df.columns:
+        df['volume'] = df['Volume']
     return df
 
 
@@ -94,7 +96,7 @@ def iqr_filter(df: pd.DataFrame, cols: Optional[List[str]] = None, k: float = 1.
     return df
 
 
-def interpolate_gaps(df: pd.DataFrame, max_consecutive: int = 3, limit_direction: str = 'both') -> pd.DataFrame:
+def interpolate_gaps(df: pd.DataFrame, max_consecutive: int = 3, limit_direction: str = 'forward') -> pd.DataFrame:
     df = df.copy()
     # count consecutive NaNs per column and mask those > max_consecutive
     for idx, col in enumerate(df.columns):
