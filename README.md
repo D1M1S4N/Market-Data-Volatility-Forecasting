@@ -106,7 +106,16 @@ This visualization demonstrates the model's practical utility: the bands expand 
     ```
     This will train the LSTM and save the best model to `train_output/`.
 
-4.  **Generate Predictions and Plots:**
+4.  **Run the Ablation Study (Baseline → Stacked → Attention → Regularized):**
+    ```bash
+    python model/experiments.py
+    ```
+    This script trains each configuration, saves the best checkpoint per model, and
+    writes a summary table to `train_output/ablation_results.csv`. Training curves
+    are stored as `train_output/history_<experiment>.png`, and attention summaries
+    (when applicable) are stored as `train_output/attention_weights_<experiment>.png`.
+
+5.  **Generate Predictions and Plots:**
     ```bash
     python model/predict.py
     ```
