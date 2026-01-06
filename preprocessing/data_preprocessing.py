@@ -11,7 +11,6 @@ import joblib
 from utils import (
     load_csv,
     ensure_ohlcv_columns,
-    iqr_filter,
     interpolate_gaps,
     atr,
     rsi,
@@ -38,6 +37,9 @@ from utils import (
 
 RAW = Path(__file__).resolve().parents[1] / 'data' / 'raw' / 'DUKASCOPY_EURUSD_15_2007-01-01_2025-01-01.csv'
 PRE = Path(__file__).resolve().parents[1] / 'data' / 'preprocessed'
+
+SPLIT_DATE_VAL = '2021-01-01'
+SPLIT_DATE_TEST = '2023-01-01'
 
 ohlcv_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
 
@@ -138,6 +140,30 @@ def create_lstm_sequences(df: pd.DataFrame, feature_cols: list, target_col: str,
         
     return np.array(X), np.array(y)
 
+def _compute_iqr_bounds(df: pd.DataFrame, cols: List[str], k: float = 1.5) -> Dict[str, tuple]:
+    bounds = {}
+    for col in cols:
+        if col not in df.columns:
+            continue
+        series = pd.to_numeric(df[col], errors='coerce')
+        q1 = series.quantile(0.25)
+        q3 = series.quantile(0.75)
+        iqr = q3 - q1
+        bounds[col] = (q1 - k * iqr, q3 + k * iqr)
+    return bounds
+
+
+def _apply_iqr_bounds(df: pd.DataFrame, bounds: Dict[str, tuple]) -> pd.DataFrame:
+    df = df.copy()
+    for col, (lower, upper) in bounds.items():
+        if col not in df.columns:
+            continue
+        series = pd.to_numeric(df[col], errors='coerce')
+        mask = (series < lower) | (series > upper)
+        df[col] = series.mask(mask, other=np.nan)
+    return df
+
+
 def preprocess_data_lstm_pca(raw_path: Path = RAW, out_dir: Path = PRE) -> Path:
     
     print("--- STEP 1: Loading and Cleaning ---")
@@ -146,8 +172,10 @@ def preprocess_data_lstm_pca(raw_path: Path = RAW, out_dir: Path = PRE) -> Path:
     df = ensure_ohlcv_columns(df)
     for col in df.columns:
         df[col] = pd.to_numeric(df[col], errors='coerce') 
-    df = iqr_filter(df, 'Close')
-    df = interpolate_gaps(df)
+    train_mask = df.index < SPLIT_DATE_VAL
+    iqr_bounds = _compute_iqr_bounds(df.loc[train_mask], ['Close'])
+    df = _apply_iqr_bounds(df, iqr_bounds)
+    df = interpolate_gaps(df, limit_direction='forward')
     
     # Ensure 'Close' column exists
     if 'Close' not in df.columns:
@@ -202,8 +230,7 @@ def preprocess_data_lstm_pca(raw_path: Path = RAW, out_dir: Path = PRE) -> Path:
 
     out_dir.mkdir(parents=True, exist_ok=True)
     
-    split_date_val = '2021-01-01'
-    df_train_for_artifacts = df_features[df_features.index < split_date_val].copy()
+    df_train_for_artifacts = df_features[df_features.index < SPLIT_DATE_VAL].copy()
     
     artefacts = learn_pipeline_artefacts(df_train_for_artifacts, FAMILIES)
     
@@ -222,10 +249,9 @@ def preprocess_data_lstm_pca(raw_path: Path = RAW, out_dir: Path = PRE) -> Path:
     
     df_cleaned = df_final_2d.dropna(subset=pca_feature_cols + [target_col])
     
-    split_date_test = '2023-01-01'
-    df_train = df_cleaned[df_cleaned.index < split_date_val].copy()
-    df_val = df_cleaned[(df_cleaned.index >= split_date_val) & (df_cleaned.index < split_date_test)].copy()
-    df_test = df_cleaned[df_cleaned.index >= split_date_test].copy()
+    df_train = df_cleaned[df_cleaned.index < SPLIT_DATE_VAL].copy()
+    df_val = df_cleaned[(df_cleaned.index >= SPLIT_DATE_VAL) & (df_cleaned.index < SPLIT_DATE_TEST)].copy()
+    df_test = df_cleaned[df_cleaned.index >= SPLIT_DATE_TEST].copy()
     
     print(f"Train samples: {len(df_train)}, Val samples: {len(df_val)}, Test samples: {len(df_test)}")
 

@@ -4,6 +4,7 @@ from tensorflow import keras
 from tensorflow.keras import layers
 from tensorflow.keras.models import Model
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
+from tensorflow.keras import regularizers
 from tensorflow.keras import backend as K
 # ¡Importante para las métricas reales!
 from sklearn.metrics import mean_squared_error, mean_absolute_error
@@ -51,13 +52,15 @@ class ModelConfig:
     DROPOUT_2 = 0.3
     DENSE_UNITS = 32
     OUTPUT_ACTIVATION = 'relu'
+    L2_REGULARIZATION = 1e-4
+    USE_ATTENTION = True
 
 class TrainConfig:
     """Training process parameters."""
     LEARNING_RATE = 0.0005
     # KEY CHANGE! Using QL loss
     LOSS_FUNCTION = ql_loss
-    METRICS = ['mae', 'mse']
+    METRICS = ['mae', 'mse', ql_loss]
     EPOCHS = 100
     BATCH_SIZE = 32
     EARLY_STOPPING_PATIENCE = 15 # A bit more patience
@@ -94,19 +97,38 @@ def build_lstm_model(input_shape):
     Builds the Stacked Bidirectional Model using ModelConfig parameters.
     """
     inputs = layers.Input(shape=input_shape)
+    regularizer = regularizers.l2(ModelConfig.L2_REGULARIZATION)
 
     # Layer 1: Bidirectional
     x = layers.Bidirectional(
-        layers.LSTM(units=ModelConfig.LSTM_UNITS_1, return_sequences=True)
+        layers.LSTM(
+            units=ModelConfig.LSTM_UNITS_1,
+            return_sequences=True,
+            kernel_regularizer=regularizer,
+            recurrent_regularizer=regularizer,
+        )
     )(inputs)
     x = layers.Dropout(ModelConfig.DROPOUT_1)(x)
 
+    if ModelConfig.USE_ATTENTION:
+        attention_out = layers.Attention()([x, x])
+        x = layers.Concatenate()([x, attention_out])
+
     # Layer 2: Normal LSTM
-    x = layers.LSTM(units=ModelConfig.LSTM_UNITS_2, return_sequences=False)(x)
+    x = layers.LSTM(
+        units=ModelConfig.LSTM_UNITS_2,
+        return_sequences=False,
+        kernel_regularizer=regularizer,
+        recurrent_regularizer=regularizer,
+    )(x)
     x = layers.Dropout(ModelConfig.DROPOUT_2)(x)
 
     # Dense Layer (Feed-forward)
-    x = layers.Dense(units=ModelConfig.DENSE_UNITS, activation='relu')(x)
+    x = layers.Dense(
+        units=ModelConfig.DENSE_UNITS,
+        activation='relu',
+        kernel_regularizer=regularizer,
+    )(x)
 
     # Output Layer
     outputs = layers.Dense(units=1, activation=ModelConfig.OUTPUT_ACTIVATION)(x)
@@ -165,10 +187,11 @@ print("--- Training finished. ---")
 # ==============================================================================
 print("\n--- Evaluating model on test set... ---")
 
-test_loss, test_mae, test_mse = model.evaluate(X_test, y_test)
+test_loss, test_mae, test_mse, test_ql = model.evaluate(X_test, y_test)
 print(f"Test Loss (QL Loss): {test_loss:.6f}") # Main metric is now QL
 print(f"Test Mean Absolute Error (MAE): {test_mae:.6f}")
 print(f"Test Root Mean Squared Error (RMSE): {np.sqrt(test_mse):.6f}")
+print(f"Test QLIKE (Metric): {test_ql:.6f}")
 
 
 # --- 8. Plot Training History ---

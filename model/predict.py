@@ -26,6 +26,14 @@ def ql_loss(y_true, y_pred):
     loss = ratio - log_ratio - 1
     return K.mean(loss)
 
+def ql_loss_np(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    epsilon = np.finfo(float).eps
+    y_pred = np.maximum(y_pred, epsilon)
+    ratio = y_true / y_pred
+    log_ratio = np.log(np.maximum(ratio, epsilon))
+    loss = ratio - log_ratio - 1
+    return float(np.mean(loss))
+
 # --- 3. Load Preprocessed Data (X, y) ---
 print("--- Loading preprocessed data... ---")
 X_val = np.load(DATA_DIR / f'{BASENAME}_X_val.npy')
@@ -44,6 +52,9 @@ model = load_model(MODEL_PATH, custom_objects={'ql_loss': ql_loss})
 print("--- Making predictions... ---")
 y_pred_val = model.predict(X_val).flatten()
 y_pred_test = model.predict(X_test).flatten()
+
+print(f"Validation QLIKE: {ql_loss_np(y_val, y_pred_val):.6f}")
+print(f"Test QLIKE: {ql_loss_np(y_test, y_pred_test):.6f}")
 
 # --- 6. Plot 1: Prediction vs Reality (Validation) ---
 print("--- Generating Validation plot... ---")
